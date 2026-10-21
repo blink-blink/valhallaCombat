@@ -40,7 +40,7 @@ namespace Utils
 	namespace AvOwner
 	{
 		inline RE::Actor* asActor(RE::ActorValueOwner* a_avOwner) {
-			return &REL::RelocateParentIfNewer<RE::Actor>(SKSE::RUNTIME_SSE_1_6_629, a_avOwner, 0xB0, 0xB8);
+			return &REL::RelocateMemberIfNewer<RE::Actor>(SKSE::RUNTIME_SSE_1_6_629, a_avOwner, -0xB0, -0xB8);
 		}
 	}
 }
@@ -253,19 +253,9 @@ public:
 		}
 	}
 
-	static void queueMessageBox(RE::BSFixedString a_message) {
-		auto factoryManager = RE::MessageDataFactoryManager::GetSingleton();
-		auto uiStrHolder = RE::InterfaceStrings::GetSingleton();
-		auto factory = factoryManager->GetCreator<RE::MessageBoxData>(uiStrHolder->messageBoxData);
-		auto messageBox = factory->Create();
-		messageBox->unk4C = 4;
-		messageBox->unk38 = 10;
-		messageBox->bodyText = a_message;
-		auto gameSettings = RE::GameSettingCollection::GetSingleton();
-		auto sOk = gameSettings->GetSetting("sOk");
-		messageBox->buttonText.push_back(sOk->GetString());
-		messageBox->QueueMessage();
-	}
+	// NOTE: queueMessageBox() removed during the CommonLibSSE-NG v10 port. MessageBoxData's
+	// layout changed (unk38 -> warningType, unk4C -> buttonPressOffset) and IUIMessageData no
+	// longer exposes QueueMessage(). The function had no call sites.
 #pragma endregion
 	/*Clamp the raw damage to be no more than the aggressor's max raw melee damage output.*/
 	static void clampDmg(float& dmg, RE::Actor* aggressor) {
@@ -294,12 +284,21 @@ public:
 	@param a_actor: new owner of the projectile.
 	@param a_projectile_collidable: pointer to the projectile collidable to rset its collision mask.*/
 	static void resetProjectileOwner(RE::Projectile* a_projectile, RE::Actor* a_actor, RE::hkpCollidable* a_projectile_collidable) {
+		if (!a_projectile || !a_actor) {
+			return;
+		}
 		a_projectile->SetActorCause(a_actor->GetActorCause());
 		a_projectile->GetProjectileRuntimeData().shooter = a_actor->GetHandle();
-		uint32_t a_collisionFilterInfo;
-		a_actor->GetCollisionFilterInfo(a_collisionFilterInfo);
-		a_projectile_collidable->broadPhaseHandle.collisionFilterInfo &= (0x0000FFFF);
-		a_projectile_collidable->broadPhaseHandle.collisionFilterInfo |= (a_collisionFilterInfo << 16);
+		if (!a_projectile_collidable) {
+			// Deferred deflect path: Havok collidable from the 190 iteration is gone.
+			// Owner/shooter above is enough; filter fix is skipped rather than crashing.
+			return;
+		}
+		RE::CFilter actorFilter;
+		a_actor->GetCollisionFilterInfo(actorFilter);
+		auto& collisionFilterInfo = a_projectile_collidable->broadPhaseHandle.collisionFilterInfo.filter;
+		collisionFilterInfo &= (0x0000FFFF);
+		collisionFilterInfo |= (actorFilter.filter << 16);
 	}
 
 	static inline bool ApproximatelyEqual(float A, float B)

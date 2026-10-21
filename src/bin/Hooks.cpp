@@ -107,17 +107,46 @@ used to block stamina regen in certain situations.*/
 @param a_projectile: the projectile to be deflected.
 @param a_AllCdPointCollector: pointer to the container storing all collision points.
 @return whether a successful deflection is performed by the actor.*/
+	inline bool IsProjectileSafeToInspect(RE::Projectile* a_projectile)
+	{
+		if (!a_projectile) {
+			return false;
+		}
+		const auto& rt = a_projectile->GetProjectileRuntimeData();
+		if (rt.flags.any(RE::Projectile::Flags::kDestroyed) || rt.flags.any(RE::Projectile::Flags::kFading)) {
+			return false;
+		}
+		if (!a_projectile->Is3DLoaded()) {
+			return false;
+		}
+		return true;
+	}
 	inline bool shouldIgnoreHit(RE::Projectile* a_projectile, RE::hkpAllCdPointCollector* a_AllCdPointCollector)
 	{
-		if (a_AllCdPointCollector) {
-			for (auto& hit : a_AllCdPointCollector->hits) {
-				auto refrA = RE::TESHavokUtilities::FindCollidableRef(*hit.rootCollidableA);
-				auto refrB = RE::TESHavokUtilities::FindCollidableRef(*hit.rootCollidableB);
-				if (refrA && refrA->formType == RE::FormType::ActorCharacter) {
-					return blockHandler::GetSingleton()->processProjectileBlock(refrA->As<RE::Actor>(), a_projectile, const_cast<RE::hkpCollidable*>(hit.rootCollidableB));
+		// Defensive: never mutate Havok state while the engine is iterating hits.
+		// Only inspect here; actual deflect/destroy is deferred to blockHandler (see destroyProjectile).
+		// This keeps Valhalla transparent in the Ricochet(outer) -> Valhalla -> CIF(inner) vfunc 190 chain
+		// unless a real player/forced block happens.
+		if (!a_projectile || !a_AllCdPointCollector) {
+			return false;
+		}
+		if (!IsProjectileSafeToInspect(a_projectile)) {
+			return false;
+		}
+		for (auto& hit : a_AllCdPointCollector->hits) {
+			if (!hit.rootCollidableA || !hit.rootCollidableB) {
+				continue;
+			}
+			auto refrA = RE::TESHavokUtilities::FindCollidableRef(*hit.rootCollidableA);
+			auto refrB = RE::TESHavokUtilities::FindCollidableRef(*hit.rootCollidableB);
+			if (refrA && refrA->formType == RE::FormType::ActorCharacter) {
+				if (auto* actorA = refrA->As<RE::Actor>(); actorA && actorA->Is3DLoaded() && !actorA->IsDead()) {
+					return blockHandler::GetSingleton()->processProjectileBlock(actorA, a_projectile, const_cast<RE::hkpCollidable*>(hit.rootCollidableB));
 				}
-				if (refrB && refrB->formType == RE::FormType::ActorCharacter) {
-					return blockHandler::GetSingleton()->processProjectileBlock(refrB->As<RE::Actor>(), a_projectile, const_cast<RE::hkpCollidable*>(hit.rootCollidableA));
+			}
+			if (refrB && refrB->formType == RE::FormType::ActorCharacter) {
+				if (auto* actorB = refrB->As<RE::Actor>(); actorB && actorB->Is3DLoaded() && !actorB->IsDead()) {
+					return blockHandler::GetSingleton()->processProjectileBlock(actorB, a_projectile, const_cast<RE::hkpCollidable*>(hit.rootCollidableA));
 				}
 			}
 		}
@@ -126,6 +155,9 @@ used to block stamina regen in certain situations.*/
 	void Hook_OnProjectileCollision::OnArrowCollision(RE::Projectile* a_this, RE::hkpAllCdPointCollector* a_AllCdPointCollector)
 	{
 		//DEBUG("hooked arrow collission vfunc");
+		if (!a_this || !a_AllCdPointCollector) {
+			return;
+		}
 		if (shouldIgnoreHit(a_this, a_AllCdPointCollector)) {
 			return;
 		};
@@ -135,6 +167,9 @@ used to block stamina regen in certain situations.*/
 	void Hook_OnProjectileCollision::OnMissileCollision(RE::Projectile* a_this, RE::hkpAllCdPointCollector* a_AllCdPointCollector)
 	{
 		//DEBUG("hooked missile collission vfunc");
+		if (!a_this || !a_AllCdPointCollector) {
+			return;
+		}
 		if (shouldIgnoreHit(a_this, a_AllCdPointCollector)) {
 			return;
 		};
@@ -178,8 +213,7 @@ used to block stamina regen in certain situations.*/
 	static void unblock_delayed_threadfunc(RE::AttackBlockHandler* a_this, RE::ButtonEvent* a_event, RE::PlayerControlsData* a_data, float a_time) 
 	{
 		std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(a_time * 1000))); // wait for, by default, 0.3 sec
-		SKSE_ADDTASK
-		(
+		SKSE::GetTaskInterface()->AddTask(
 			[a_this, a_event, a_data]() 
 			{
 				auto player = RE::PlayerCharacter::GetSingleton();
@@ -192,8 +226,7 @@ used to block stamina regen in certain situations.*/
 					delete (a_event);
 				}
 				player->NotifyAnimationGraph("blockStop"); // just in case
-			}
-		)
+			});
 	}
 	void Hook_AttackBlockHandler_OnProcessButton::ProcessButton(RE::AttackBlockHandler* a_this, RE::ButtonEvent* a_event, RE::PlayerControlsData* a_data)
 	{

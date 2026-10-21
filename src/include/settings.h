@@ -32,11 +32,11 @@ class settings
 			auto eventSource = SKSE::GetModCallbackEventSource();
 
 			if (!eventSource) {
-				ERROR("EventSource not found!");
+				logger::error("EventSource not found!");
 				return false;
 			}
 			eventSource->AddEventSink(&singleton);
-			INFO("Register {}", typeid(singleton).name());
+			logger::info("Register {}", typeid(singleton).name());
 			return true;
 		}
 	};

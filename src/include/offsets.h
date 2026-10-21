@@ -42,6 +42,11 @@ namespace RE
 		{
 			using func_t = decltype(ArrowProjectile_sub_1407546B0);
 			REL::Relocation<func_t> func{ RELOCATION_ID(43027, 00000) };
+			// The AE id for this call was left as a placeholder (0) upstream; CommonLibSSE-NG v10
+			// resolves it to a null address on AE and the SE/AE id numbering differs, so skip if unavailable.
+			if (func.address() == 0) {
+				return;
+			}
 			return func(a_projectile);
 		}
 

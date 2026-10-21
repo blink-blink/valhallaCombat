@@ -183,7 +183,7 @@ void blockHandler::OnPcSuccessfulTimedBlock() {
 
 bool blockHandler::isInBlockAngle(RE::Actor* blocker, RE::TESObjectREFR* a_obj) 
 {
-	auto angle = blocker->GetHeadingAngle(a_obj);
+	auto angle = blocker->GetHeadingAngle(a_obj->GetPosition(), false);
 	return (angle <= data::fCombatHitConeAngle && angle >= -data::fCombatHitConeAngle);
 }
 
@@ -279,29 +279,72 @@ bool blockHandler::processProjectileBlock(RE::Actor* a_blocker, RE::Projectile* 
 	return false;
 }
 
-void blockHandler::deflectProjectile(RE::Actor* a_deflector, RE::Projectile* a_projectile, RE::hkpCollidable* a_projectile_collidable) 
+void blockHandler::deflectProjectile(RE::Actor* a_deflector, RE::Projectile* a_projectile, RE::hkpCollidable* a_projectile_collidable)
 {
-	RE::TESObjectREFR* shooter = nullptr;
-	if (a_projectile->GetProjectileRuntimeData().shooter && a_projectile->GetProjectileRuntimeData().shooter.get()) {
-		shooter = a_projectile->GetProjectileRuntimeData().shooter.get().get();
+	if (!a_deflector || !a_projectile) {
+		return;
 	}
-	ValhallaUtils::resetProjectileOwner(a_projectile, a_deflector, a_projectile_collidable);
-
-	if (shooter && shooter->Is3DLoaded()) {
-		ValhallaUtils::RetargetProjectile(a_projectile, shooter);
-	} else {
-		ValhallaUtils::ReflectProjectile(a_projectile);
-	}
-
+	// Deferred: never mutate Havok projectile state synchronously inside vfunc 190.
+	// Ricochet(outer) -> Valhalla -> CIF(inner) share the same hkpAllCdPointCollector;
+	// freeing/retargeting here corrupts the engine's hit iteration (r13=0x200000 fault).
+	// Swallow now (caller skips original), apply deflection on the main thread next tick.
+	auto projectileHandle = a_projectile->GetHandle();
+	auto deflectorHandle = a_deflector->GetHandle();
+	SKSE::GetTaskInterface()->AddTask([projectileHandle, deflectorHandle]() {
+		// Resolve from handles: the raw pointers from the Havok iteration are not safe to reuse.
+		auto projectileRef = projectileHandle.get();
+		auto deflectorRef = deflectorHandle.get();
+		auto* projectile = projectileRef ? projectileRef->AsProjectile() : nullptr;
+		auto* deflector = deflectorRef ? deflectorRef->As<RE::Actor>() : nullptr;
+		if (!projectile || !deflector) {
+			return;
+		}
+		if (!projectile->Is3DLoaded()) {
+			return;
+		}
+		const auto& rt = projectile->GetProjectileRuntimeData();
+		if (rt.flags.any(RE::Projectile::Flags::kDestroyed) || rt.flags.any(RE::Projectile::Flags::kFading)) {
+			return;
+		}
+		RE::TESObjectREFR* shooter = nullptr;
+		if (const auto shooterHandle = projectile->GetProjectileRuntimeData().shooter; shooterHandle) {
+			shooter = shooterHandle.get().get();
+		}
+		// Collidable from the Havok iteration is no longer safe here; pass nullptr so
+		// resetProjectileOwner must tolerate it (filter fix skipped, owner/shooter still updated).
+		ValhallaUtils::resetProjectileOwner(projectile, deflector, nullptr);
+		if (shooter && shooter->Is3DLoaded()) {
+			ValhallaUtils::RetargetProjectile(projectile, shooter);
+		} else {
+			ValhallaUtils::ReflectProjectile(projectile);
+		}
+	});
 }
 
-void blockHandler::destroyProjectile(RE::Projectile* a_projectile) 
+void blockHandler::destroyProjectile(RE::Projectile* a_projectile)
 {
-	RE::Offset::destroyProjectile(a_projectile);
+	if (!a_projectile) {
+		return;
+	}
+	// Deferred for the same reason as above: destroying inside OnArrowCollision frees
+	// memory the engine/Ricochet/CIF are still iterating. Swallow now, destroy next tick.
+	auto projectileHandle = a_projectile->GetHandle();
+	SKSE::GetTaskInterface()->AddTask([projectileHandle]() {
+		auto projectileRef = projectileHandle.get();
+		auto* projectile = projectileRef ? projectileRef->AsProjectile() : nullptr;
+		if (!projectile) {
+			return;
+		}
+		const auto& rt = projectile->GetProjectileRuntimeData();
+		if (rt.flags.any(RE::Projectile::Flags::kDestroyed) || rt.flags.any(RE::Projectile::Flags::kFading)) {
+			return;
+		}
+		RE::Offset::destroyProjectile(projectile);
+	});
 }
 
 #pragma region Process Block
-void blockHandler::processPhysicalBlock(RE::Actor* blocker, RE::Actor* aggressor, SKSE::stl::enumeration<RE::HitData::Flag, std::uint32_t> a_hitFlag, RE::HitData& hitData)
+void blockHandler::processPhysicalBlock(RE::Actor* blocker, RE::Actor* aggressor, REX::EnumSet<RE::HitData::Flag, std::uint32_t> a_hitFlag, RE::HitData& hitData)
 {
 	if (settings::bBlockStaminaToggle) {
 		processStaminaBlock(blocker, aggressor, a_hitFlag, hitData);
@@ -310,7 +353,7 @@ void blockHandler::processPhysicalBlock(RE::Actor* blocker, RE::Actor* aggressor
 
 
 /// <returns>The stamina cost multiplier for a stamina block, based on the plugin settings.</returns>
-inline float getBlockStaminaCostMult(RE::Actor* blocker, RE::Actor* aggressor, SKSE::stl::enumeration<RE::HitData::Flag, std::uint32_t> a_hitFlag)
+inline float getBlockStaminaCostMult(RE::Actor* blocker, RE::Actor* aggressor, REX::EnumSet<RE::HitData::Flag, std::uint32_t> a_hitFlag)
 {
 
 	if (a_hitFlag.any(HITFLAG::kBlockWithWeapon)) {
@@ -343,7 +386,7 @@ inline float getBlockStaminaCostMult(RE::Actor* blocker, RE::Actor* aggressor, S
 	}
 }
 
-void blockHandler::processStaminaBlock(RE::Actor* a_blocker, RE::Actor* a_aggressor, SKSE::stl::enumeration<RE::HitData::Flag, std::uint32_t> a_hitFlag, RE::HitData& a_hitData)
+void blockHandler::processStaminaBlock(RE::Actor* a_blocker, RE::Actor* a_aggressor, REX::EnumSet<RE::HitData::Flag, std::uint32_t> a_hitFlag, RE::HitData& a_hitData)
 {
 	using HITFLAG = RE::HitData::Flag;	
 	float staminaDamage = a_hitData.totalDamage;

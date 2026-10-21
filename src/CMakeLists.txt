@@ -57,8 +57,6 @@ if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
 			"/utf-8"	# Set Source and Executable character sets to UTF-8
 			"/Zi"	# Debug Information Format
 
-			"/await"
-
 			"/permissive-"	# Standards conformance
 			"/Zc:preprocessor"	# Enable preprocessor conformance mode
 
@@ -85,7 +83,11 @@ target_include_directories(
 
 set(SKSE_SUPPORT_XBYAK ON)
 
-add_subdirectory("$ENV{CommonLibSSEPath_NG}" CommonLibSSE EXCLUDE_FROM_ALL)
+if(DEFINED ENV{COMMONLIB_SSE_FOLDER})
+	add_subdirectory("$ENV{COMMONLIB_SSE_FOLDER}" CommonLibSSE EXCLUDE_FROM_ALL)
+else()
+	add_subdirectory("$ENV{CommonLibSSEPath_NG}" CommonLibSSE EXCLUDE_FROM_ALL)
+endif()
 
 find_package(xbyak REQUIRED CONFIG)
 

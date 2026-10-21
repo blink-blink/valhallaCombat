@@ -222,7 +222,16 @@ namespace Hooks
 	public:
 		static void install()
 		{
+			// Upstream left the AE id for this call site as a placeholder (0). CommonLibSSE-NG v10's
+			// VariantID/VariantOffset return 0 when the AE value is 0, so write_call would dereference
+			// a null address. The SE and AE address libraries use different id numbering, so falling
+			// back to the SE id on AE would patch an unrelated function. The last known-good build did
+			// not install this hook at all, so skip it when no address is available.
 			REL::Relocation<uintptr_t> hook{ RELOCATION_ID(37376, 00000) };
+			if (hook.address() == 0) {
+				logger::warn("hook:OnGetWantBlock: no AE address supplied upstream; skipping");
+				return;
+			}
 			auto& trampoline = SKSE::GetTrampoline();
 
 			_GetWantBlock = trampoline.write_call<5>(hook.address() + RELOCATION_OFFSET(0x23, 0x00), GetWantBlock);
