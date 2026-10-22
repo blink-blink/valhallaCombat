@@ -123,6 +123,15 @@ void blockHandler::onBlockKeyDown() {
 		return;
 	}
 	if (isPcTimedBlocking) {
+		// onBlockKeyDown is reachable from two independent paths: the AttackBlockHandler::
+		// ProcessButton hook (automatic block detection) and the Alt Block Key input handler.
+		// When both fire for the same block, the second call used to run onPcTimedBlockEnd()
+		// below and cancel the timed-block window that had just been opened - which is why
+		// binding the Alt Block Key "broke" perfect block for keyboard/mouse users. If a window
+		// is still open, treat the second call as a duplicate and keep the existing window.
+		if (pcTimedBlockTimer > 0.f) {
+			return;
+		}
 		onPcTimedBlockEnd();
 	}
 

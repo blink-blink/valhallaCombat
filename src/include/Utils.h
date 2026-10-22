@@ -12,6 +12,26 @@ namespace Utils
 	namespace Actor
 	{
 		bool isHumanoid(RE::Actor* a_actor);
+
+		// 1.7.99-safe replacement for Actor::IsDead().
+		// Actor::IsDead() is a virtual call that, on Skyrim 1.7.99, returns true for living
+		// essential/protected NPCs (a CommonLibSSE-NG dispatch issue). Every combat feature
+		// that gated on IsDead() (hit processing, stun, execution) therefore bailed out to
+		// vanilla behavior on 1.7.99. GetLifeState() reads a plain bitfield with no virtual
+		// dispatch and is correct on every version.
+		[[nodiscard]] inline bool isDead(RE::Actor* a_actor)
+		{
+			if (!a_actor) {
+				return false;
+			}
+			auto* actorState = a_actor->AsActorState();
+			if (!actorState) {
+				return false;
+			}
+			const auto lifeState = actorState->GetLifeState();
+			return lifeState == RE::ACTOR_LIFE_STATE::kDead || lifeState == RE::ACTOR_LIFE_STATE::kDying;
+		}
+
 		RE::TESObjectWEAP* getWieldingWeapon(RE::Actor* a_actor);
 		bool isDualWielding(RE::Actor* a_actor);
 		bool isEquippedShield(RE::Actor* a_actor);

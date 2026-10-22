@@ -20,6 +20,13 @@ class settings
 			}
 			if (a_event->eventName == "dmenu_updateSettings" && a_event->strArg == "ValhallaCombat") {
 				settings::readSettings();
+				// Also refresh the game-setting and global values the MCM reads back for its status
+				// display (TrueHUD API found / special meter granted). These were previously only
+				// set once during onPostLoadGame - which runs before TrueHUD's async special-bar
+				// registration completes - so the MCM permanently showed "NOT FOUND / NOT GRANTED"
+				// even though the API was actually connected. Refreshing here means opening the MCM
+				// always shows the current, true status.
+				settings::updateGameSettings();
 			}
 
 			return EventResult::kContinue;

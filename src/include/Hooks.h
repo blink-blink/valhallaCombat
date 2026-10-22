@@ -141,16 +141,31 @@ namespace Hooks
 //		static void Update(RE::Main* a_this, float a2);
 //		static inline REL::Relocation<decltype(Update)> _Update;
 //	};
-	class Hook_AttackBlockHandler_OnProcessButton //not used
+	class Hook_AttackBlockHandler_OnProcessButton
 	{
 	public:
 		static void install() 
 		{
 			REL::Relocation<std::uintptr_t> atkbckVtbl{ RE::VTABLE_AttackBlockHandler[0] };
 
-			_ProcessButton = atkbckVtbl.write_vfunc(0x4, ProcessButton);
-			logger::info("hook:AttackBlockHandler_OnProcessButton");
-			
+			// AttackBlockHandler::ProcessButton sits at a different vtable slot depending on the
+			// game version: index 0x4 on SE and on AE before 1.7.99, but index 0x6 on AE 1.7.99+,
+			// where two new vfuncs (ProcessMotionGesture / ProcessSixaxis) were inserted into
+			// RE::PlayerInputHandler ahead of it. See CommonLibSSE-NG's PlayerInputHandler.h:
+			//   static constexpr std::size_t kAE1799AddedVFuncCount = 2;
+			//   REL::RelocateVirtual<...>(REL::VersionShift(0x04, kAE1799AddedVFuncCount,
+			//                                      SKSE::RUNTIME_SSE_1_7_99), 0x04, ...);
+			// Hooking the hardcoded 0x4 on 1.7.99+ overwrote an unrelated input vfunc with our
+			// ProcessButton and meant the player's block never reached this handler at all, so
+			// timed block, perfect block and projectile parry silently did nothing.
+			constexpr std::size_t kProcessButtonVtblIndex = 0x4;
+			constexpr std::size_t kAE1799AddedVFuncCount = 2;
+			const std::size_t processButtonVtblIndex =
+				REL::Module::IsAtLeast(SKSE::RUNTIME_SSE_1_7_99) ? kProcessButtonVtblIndex + kAE1799AddedVFuncCount
+																 : kProcessButtonVtblIndex;
+
+			_ProcessButton = atkbckVtbl.write_vfunc(processButtonVtblIndex, ProcessButton);
+			logger::info("hook:AttackBlockHandler_OnProcessButton (vtable slot = {:#x})", processButtonVtblIndex);
 		}
 
 	private:

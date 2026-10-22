@@ -73,9 +73,34 @@ void settings::updateGameSettings() {
 	if (bVal_TrueHUDAPI_SpecialMeter_Acq) {
 		bVal_TrueHUDAPI_SpecialMeter_Acq->SetBool(facts::TrueHudAPI_HasSpecialBarControl);
 	}
+
+	// The MCM's "TrueHUD API: FOUND/NOT FOUND" and "Special Meter: GRANTED/NOT GRANTED" readouts are
+	// driven by two GlobalVariables in ValhallaCombat.esp (via the MCM's hiddenToggles), not by the
+	// game settings above. The DLL previously only ever set the game settings, so those globals
+	// were never updated and the MCM permanently showed NOT FOUND / NOT GRANTED even when the API
+	// was connected. Set the globals here so the display reflects the real state.
+	//   0x56A25 = bVal_TrueHud_API              (API obtained)
+	//   0x56A26 = bVal_TrueHud_API_SpecialMeter (special meter granted)
+	if (auto dataHandler = RE::TESDataHandler::GetSingleton()) {
+		const bool bApiObtained = ValhallaCombat::GetSingleton()->ersh_TrueHUD != nullptr;
+		if (auto* gvApiObtained = dataHandler->LookupForm<RE::TESGlobal>(0x56A25, "ValhallaCombat.esp")) {
+			gvApiObtained->value = bApiObtained ? 1.0f : 0.0f;
+		}
+		if (auto* gvSpecialMeter = dataHandler->LookupForm<RE::TESGlobal>(0x56A26, "ValhallaCombat.esp")) {
+			gvSpecialMeter->value = facts::TrueHudAPI_HasSpecialBarControl ? 1.0f : 0.0f;
+		}
+	}
+
 	logger::info("...done");
 }
-#define SETTINGFILE_PATH "Data\\SKSE\\Plugins\\ValhallaCombat\\Settings.ini"
+// MCM Helper (this mod's config.json is in the MCM Helper format - MCM\Config\ValhallaCombat\
+// config.json - with no path override) writes the user's live settings to its default location:
+//   Data\MCM\Settings\ValhallaCombat.ini
+// The DLL originally read a different file (Data\SKSE\Plugins\ValhallaCombat\Settings.ini) that
+// MCM Helper never writes to - and which this mod does not even ship - so every MCM change
+// (toggles, execution key, alt-block key, ...) was saved by the MCM but never read by the DLL,
+// which ran on hardcoded defaults instead. Point the DLL at the file MCM Helper actually writes.
+#define SETTINGFILE_PATH "Data\\MCM\\Settings\\ValhallaCombat.ini"
 /*Load the setting from ini file with the same name as the variable in code.*/
 #define FETCH(setting) load(setting, #setting)
 /*read settings from ini, and update them into game settings.*/

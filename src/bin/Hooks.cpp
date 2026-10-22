@@ -84,7 +84,7 @@ used to block stamina regen in certain situations.*/
 	{
 		using HITFLAG = RE::HitData::Flag;
 		auto aggressor = hitData.aggressor.get().get();
-		if (!victim || !aggressor || victim->IsDead()) {
+		if (!victim || !aggressor || Utils::Actor::isDead(victim)) {
 			_ProcessHit(victim, hitData);
 			return;
 		}
@@ -140,12 +140,12 @@ used to block stamina regen in certain situations.*/
 			auto refrA = RE::TESHavokUtilities::FindCollidableRef(*hit.rootCollidableA);
 			auto refrB = RE::TESHavokUtilities::FindCollidableRef(*hit.rootCollidableB);
 			if (refrA && refrA->formType == RE::FormType::ActorCharacter) {
-				if (auto* actorA = refrA->As<RE::Actor>(); actorA && actorA->Is3DLoaded() && !actorA->IsDead()) {
+				if (auto* actorA = refrA->As<RE::Actor>(); actorA && actorA->Is3DLoaded() && !Utils::Actor::isDead(actorA)) {
 					return blockHandler::GetSingleton()->processProjectileBlock(actorA, a_projectile, const_cast<RE::hkpCollidable*>(hit.rootCollidableB));
 				}
 			}
 			if (refrB && refrB->formType == RE::FormType::ActorCharacter) {
-				if (auto* actorB = refrB->As<RE::Actor>(); actorB && actorB->Is3DLoaded() && !actorB->IsDead()) {
+				if (auto* actorB = refrB->As<RE::Actor>(); actorB && actorB->Is3DLoaded() && !Utils::Actor::isDead(actorB)) {
 					return blockHandler::GetSingleton()->processProjectileBlock(actorB, a_projectile, const_cast<RE::hkpCollidable*>(hit.rootCollidableA));
 				}
 			}
